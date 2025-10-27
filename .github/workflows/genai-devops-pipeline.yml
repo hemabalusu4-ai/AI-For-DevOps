@@ -1,0 +1,74 @@
+name: GenAI + DevOps Pipeline
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  checkout-code:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+  genai-code-analysis:
+    runs-on: ubuntu-latest
+    needs: checkout-code
+    steps:
+      - name: Run GenAI code review
+        run: |
+          cd genai-analysis/scripts
+          python review_code.py  # your script to call LLM
+
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    needs: genai-code-analysis
+    if: ${{ steps.genai-code-analysis.outputs.status == 'APPROVE' }}
+    steps:
+      - name: Build image
+        run: docker build -t myservice:${{ github.sha }} .
+      - name: Push & Deploy
+        run: |
+          # your docker push / kubectl apply commands
+
+  monitor-and-remediate:
+    runs-on: ubuntu-latest
+    needs: build-and-deploy
+    steps:
+      - name: Monitor metrics/logs
+        run: |
+          python logs-metrics/ingestion/check_anomaly.py
+      - name: Remediation workflow
+        if: ${{ steps.monitor-and-remediate.outputs.anomaly == 'true' }}
+        run: |
+          scripts = remediation/scripts/remediate.sh
+          bash $scripts
+Placeholder Script: genai-analysis/scripts/review_code.py
+python
+Copy code
+import os
+import openai  # or azure-openai SDK
+
+def main():
+    openai.api_key = os.getenv("OPENAI_API_KEY")
+    # simple example
+    response = openai.ChatCompletion.create(
+        model="gpt-4-oai",
+        messages=[
+          {"role":"system","content":"You are DevOps code reviewer."},
+          {"role":"user","content":"Review code changes and respond APPROVE or REJECT."}
+        ]
+    )
+    verdict = response.choices[0].message.content
+    print(f"Verdict: {verdict}")
+    if verdict.strip().upper() == "APPROVE":
+        # set output for GitHub Actions
+        print("::set-output name=status::APPROVE")
+    else:
+        print("::set-output name=status::REJECT")
+
+if __name__ == "__main__":
+    main()
